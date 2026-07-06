@@ -1,7 +1,6 @@
-from tkinter import *
+import customtkinter as ctk
 from tkinter import filedialog
 from tkinter.messagebox import showinfo, askyesno
-from tkinter import ttk
 import threading
 from proglog import ProgressBarLogger
 import random
@@ -10,24 +9,20 @@ import sys
 import subprocess
 import json
 import urllib.request
-import urllib.error
+import zipfile
+import tempfile
+import shutil
+from moviepy import VideoFileClip
 
 # CẤU HÌNH PHIÊN BẢN (AUTO UPDATE)
 CURRENT_VERSION = "v1.0.0"
 REPO_URL = "https://api.github.com/repos/mage19vn/resizeVideo/releases/latest"
 
-# Import MoviePy
-from moviepy import VideoFileClip
-
 # ==========================================
-# CẤU HÌNH MÀU SẮC GIAO DIỆN (DARK THEME)
+# CẤU HÌNH GIAO DIỆN HIỆN ĐẠI
 # ==========================================
-BG_COLOR = "#1e1e1e"
-FRAME_BG = "#2d2d2d"
-TEXT_COLOR = "#ffffff"
-SUB_TEXT = "#b3b3b3"
-ACCENT_COLOR = "#2fd09b" # Màu xanh nguyên bản của bạn
-ENTRY_BG = "#3c3f41"
+ctk.set_appearance_mode("Dark")
+ctk.set_default_color_theme("green") # Sử dụng màu xanh làm màu chủ đạo (Accent color)
 
 class MyTkLogger(ProgressBarLogger):
     def __init__(self, progress_bar, root):
@@ -38,129 +33,121 @@ class MyTkLogger(ProgressBarLogger):
     def bars_callback(self, bar, attr, value, old_value=None):
         total = self.bars[bar]['total']
         if total > 0:
-            percent = (value / total) * 100
-            self.progress_bar['value'] = percent
+            percent = value / total # CustomTkinter progress bar takes 0.0 to 1.0
+            self.progress_bar.set(percent)
             self.root.update_idletasks()
 
-class GUI:
-    def __init__(self, master):
-        self.master = master
+class GUI(ctk.CTk):
+    def __init__(self):
+        super().__init__()
         
+        self.title('ResizeVideo Pro (Modern UI)')
+        self.geometry('750x650')
+        self.resizable(False, False)
+        
+        # Set icon
+        icon_path = os.path.join(os.path.dirname(__file__) if '__file__' in locals() else os.getcwd(), "app_icon.ico")
+        if os.path.exists(icon_path):
+            self.iconbitmap(icon_path)
+            
         # --- Khởi tạo các biến mặc định ---
         self.fileNameInput = ''
         self.fileNameOutput = 'United'
-        self.scaleOutput = 0.5  
+        self.scaleOutput = (1920, 1080) # Default 1080p
         self.crfOutput = 28
         self.speedOutput = 1.0  
         self.vcodecOutput = "libx264"
         self.dot = '.mp4'
-
-        # ==========================================
-        # SETUP STYLE CHO TTK (Làm đẹp Combobox, Progressbar)
-        # ==========================================
-        style = ttk.Style()
-        style.theme_use('clam')
+        self.original_duration = 0.0
         
-        # 1. Cấu hình màu thanh tiến trình
-        style.configure("Horizontal.TProgressbar", troughcolor=ENTRY_BG, bordercolor=BG_COLOR, background=ACCENT_COLOR, thickness=15)
-
-        # 2. Cấu hình màu cho ô Combobox đang hiển thị
-        style.configure("TCombobox", fieldbackground=ENTRY_BG, background=FRAME_BG, foreground=TEXT_COLOR, borderwidth=0)
-        
-        # BẮT BUỘC: Ép màu chữ trắng sáng (TEXT_COLOR) khi ở trạng thái readonly
-        style.map('TCombobox', 
-                  fieldbackground=[('readonly', ENTRY_BG)], 
-                  foreground=[('readonly', TEXT_COLOR)], # Giữ chữ màu trắng sáng
-                  selectbackground=[('readonly', ACCENT_COLOR)], # Đổi màu nền khi bôi đen
-                  selectforeground=[('readonly', BG_COLOR)])     # Đổi màu chữ khi bôi đen
-        
-        # 3. Cấu hình màu cho Danh sách xổ xuống (Popdown Listbox)
-        self.master.option_add('*TCombobox*Listbox.background', ENTRY_BG)
-        self.master.option_add('*TCombobox*Listbox.foreground', TEXT_COLOR)
-        self.master.option_add('*TCombobox*Listbox.selectBackground', ACCENT_COLOR)
-        self.master.option_add('*TCombobox*Listbox.selectForeground', BG_COLOR)
-        self.master.option_add('*TCombobox*Listbox.font', ('Segoe UI', 10))
-        
-        # ==========================================
-        # KHỐI HEADER
-        # ==========================================
-        header_frame = Frame(self.master, bg=BG_COLOR)
-        header_frame.pack(fill=X, pady=(15, 5))
-        
-        Label(header_frame, text="RESIZE VIDEO PRO", font=('Segoe UI', 20, 'bold'), bg=BG_COLOR, fg=ACCENT_COLOR).pack()
-        
-        version_frame = Frame(header_frame, bg=BG_COLOR)
-        version_frame.pack()
-        
-        Label(version_frame, text="Powered by Mage__", font=('Segoe UI', 10, 'italic'), bg=BG_COLOR, fg=SUB_TEXT).pack(side=LEFT, padx=5)
-        Label(version_frame, text=f"|  {CURRENT_VERSION}", font=('Segoe UI', 10, 'bold'), bg=BG_COLOR, fg=SUB_TEXT).pack(side=LEFT)
-        
-        self.btn_update = Button(version_frame, text='🎁 Cập nhật bản mới', font=('Segoe UI', 9, 'bold'), 
-                                 fg=BG_COLOR, bg="#f39c12", activebackground="#d68910", 
-                                 relief=FLAT, cursor="hand2", command=self.prompt_update)
+        self.setup_ui()
         
         # Chạy kiểm tra version ngầm
         threading.Thread(target=self.check_for_updates, daemon=True).start()
         
-        # Khoảng trống dưới header
-        Frame(self.master, bg=BG_COLOR, height=10).pack()
+    def setup_ui(self):
+        # ==========================================
+        # KHỐI HEADER
+        # ==========================================
+        header_frame = ctk.CTkFrame(self, fg_color="transparent")
+        header_frame.pack(fill="x", pady=(20, 10))
+        
+        ctk.CTkLabel(header_frame, text="RESIZE VIDEO PRO", font=ctk.CTkFont(family="Segoe UI", size=24, weight="bold"), text_color="#2fd09b").pack()
+        
+        version_frame = ctk.CTkFrame(header_frame, fg_color="transparent")
+        version_frame.pack()
+        
+        ctk.CTkLabel(version_frame, text="Powered by Mage__", font=ctk.CTkFont(family="Segoe UI", size=12, slant="italic")).pack(side="left", padx=5)
+        ctk.CTkLabel(version_frame, text=f"|  {CURRENT_VERSION}", font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold")).pack(side="left")
+        
+        self.btn_check_update = ctk.CTkButton(version_frame, text='🔄 Kiểm tra cập nhật', font=ctk.CTkFont(family="Segoe UI", size=12), 
+                                              width=130, height=28, fg_color="transparent", border_width=1,
+                                              command=self.manual_check_update)
+        self.btn_check_update.pack(side="left", padx=15)
+
+        self.btn_update = ctk.CTkButton(version_frame, text='🎁 Có bản mới! Cập nhật ngay', font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"), 
+                                        fg_color="#f39c12", hover_color="#d68910", text_color="#1e1e1e",
+                                        command=self.prompt_update, height=28)
+        # Nút này chỉ pack khi có update (ở hàm check_for_updates)
 
         # ==========================================
         # KHỐI CHÍNH (CHIA 2 CỘT: TRÁI - INPUT, PHẢI - SETTINGS)
         # ==========================================
-        main_frame = Frame(self.master, bg=BG_COLOR)
-        main_frame.pack(fill=BOTH, expand=True, padx=20)
+        main_frame = ctk.CTkFrame(self, fg_color="transparent")
+        main_frame.pack(fill="both", expand=True, padx=20)
+        main_frame.columnconfigure(0, weight=1)
+        main_frame.columnconfigure(1, weight=1)
 
         # --- CỘT TRÁI: ĐẦU VÀO (INPUT) ---
-        left_frame = LabelFrame(main_frame, text=" 📥 Input Video ", font=('Segoe UI', 11, 'bold'), bg=FRAME_BG, fg=TEXT_COLOR, bd=1, padx=15, pady=15)
+        left_frame = ctk.CTkFrame(main_frame, corner_radius=10)
         left_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
+        
+        ctk.CTkLabel(left_frame, text="📥 Input Video", font=ctk.CTkFont(family="Segoe UI", size=16, weight="bold")).pack(pady=(15, 5))
 
-        self.choiceFileButton = Button(left_frame, text='📂 Chọn File Video', font=('Segoe UI', 11, 'bold'), 
-                                       fg=BG_COLOR, bg=ACCENT_COLOR, activebackground="#25a87c", 
-                                       relief=FLAT, cursor="hand2", command=self.choiceFILE, width=25)
-        self.choiceFileButton.pack(pady=(0, 15))
+        self.choiceFileButton = ctk.CTkButton(left_frame, text='📂 Chọn File Video', font=ctk.CTkFont(family="Segoe UI", size=14, weight="bold"), 
+                                              command=self.choiceFILE, height=40)
+        self.choiceFileButton.pack(pady=15, padx=20, fill="x")
 
-        self.labelTextinfomation = Label(left_frame, text="Chưa có file nào được chọn.", 
-                                         bg=FRAME_BG, fg=SUB_TEXT, font=('Segoe UI', 10), justify='left')
-        self.labelTextinfomation.pack(anchor="w")
+        self.labelTextinfomation = ctk.CTkLabel(left_frame, text="Chưa có file nào được chọn.", 
+                                                font=ctk.CTkFont(family="Segoe UI", size=13), justify='left')
+        self.labelTextinfomation.pack(anchor="w", padx=20, pady=5)
 
         # --- CỘT PHẢI: CẤU HÌNH (SETTINGS) ---
-        right_frame = LabelFrame(main_frame, text=" ⚙️ Output Settings ", font=('Segoe UI', 11, 'bold'), bg=FRAME_BG, fg=TEXT_COLOR, bd=1, padx=15, pady=10)
+        right_frame = ctk.CTkFrame(main_frame, corner_radius=10)
         right_frame.grid(row=0, column=1, sticky="nsew")
+        right_frame.columnconfigure(1, weight=1)
+        
+        ctk.CTkLabel(right_frame, text="⚙️ Output Settings", font=ctk.CTkFont(family="Segoe UI", size=16, weight="bold")).grid(row=0, column=0, columnspan=2, pady=(15, 10))
 
         # Tên file xuất
-        Label(right_frame, text="Tên file:", bg=FRAME_BG, fg=TEXT_COLOR, font=('Segoe UI', 10)).grid(row=0, column=0, sticky="w", pady=5)
-        self.textBoxOutName = Entry(right_frame, bg=ENTRY_BG, fg=TEXT_COLOR, insertbackground=TEXT_COLOR, relief=FLAT, font=('Segoe UI', 10), width=22)
+        ctk.CTkLabel(right_frame, text="Tên file:", font=ctk.CTkFont(size=13)).grid(row=1, column=0, sticky="w", padx=20, pady=5)
+        self.textBoxOutName = ctk.CTkEntry(right_frame, font=ctk.CTkFont(size=13))
         self.textBoxOutName.insert(0, self.fileNameOutput)
-        self.textBoxOutName.grid(row=0, column=1, pady=5, padx=5)
+        self.textBoxOutName.grid(row=1, column=1, padx=(0, 20), pady=5, sticky="ew")
 
         # Định dạng (Format)
         self.LISTCANSAVE = [".mp4", ".avi", ".mov", ".mkv", ".gif"]
-        Label(right_frame, text="Định dạng:", bg=FRAME_BG, fg=TEXT_COLOR, font=('Segoe UI', 10)).grid(row=1, column=0, sticky="w", pady=5)
-        self.format_cb = ttk.Combobox(right_frame, values=self.LISTCANSAVE, state="readonly", width=20)
+        ctk.CTkLabel(right_frame, text="Định dạng:", font=ctk.CTkFont(size=13)).grid(row=2, column=0, sticky="w", padx=20, pady=5)
+        self.format_cb = ctk.CTkComboBox(right_frame, values=self.LISTCANSAVE, state="readonly", command=lambda e: [setattr(self, 'dot', e), self.update_estimate()])
         self.format_cb.set(self.dot)
-        self.format_cb.grid(row=1, column=1, pady=5, padx=5)
-        self.format_cb.bind("<<ComboboxSelected>>", lambda e: [setattr(self, 'dot', self.format_cb.get()), self.update_estimate()])
+        self.format_cb.grid(row=2, column=1, padx=(0, 20), pady=5, sticky="ew")
 
         # Độ phân giải (Scale)
         self.scale_map = {"2160p (4K)": (3840, 2160), "1440p (2K)": (2560, 1440), "1080p (FHD)": (1920, 1080), 
                           "720p (HD)": (1280, 720), "480p (SD)": (854, 480), "360p": (640, 360), "240p": (426, 240)}
-        Label(right_frame, text="Độ phân giải:", bg=FRAME_BG, fg=TEXT_COLOR, font=('Segoe UI', 10)).grid(row=2, column=0, sticky="w", pady=5)
-        self.scale_cb = ttk.Combobox(right_frame, values=list(self.scale_map.keys()), state="readonly", width=20)
-        self.scale_cb.set("1080p (FHD)") # Mặc định
-        self.scaleOutput = self.scale_map["1080p (FHD)"]
-        self.scale_cb.grid(row=2, column=1, pady=5, padx=5)
-        self.scale_cb.bind("<<ComboboxSelected>>", lambda e: [setattr(self, 'scaleOutput', self.scale_map[self.scale_cb.get()]), self.update_estimate()])
+        ctk.CTkLabel(right_frame, text="Độ phân giải:", font=ctk.CTkFont(size=13)).grid(row=3, column=0, sticky="w", padx=20, pady=5)
+        self.scale_cb = ctk.CTkComboBox(right_frame, values=list(self.scale_map.keys()), state="readonly", command=lambda e: [setattr(self, 'scaleOutput', self.scale_map[e]), self.update_estimate()])
+        self.scale_cb.set("1080p (FHD)")
+        self.scale_cb.grid(row=3, column=1, padx=(0, 20), pady=5, sticky="ew")
 
         # CRF (Chất lượng)
         self.crf_map = {"18 (Chất lượng cao)": 18, "23 (Chất lượng TB)": 23, "28 (Chất lượng thấp)": 28}
-        Label(right_frame, text="Chất lượng (CRF):", bg=FRAME_BG, fg=TEXT_COLOR, font=('Segoe UI', 10)).grid(row=3, column=0, sticky="w", pady=5)
-        self.crf_cb = ttk.Combobox(right_frame, values=list(self.crf_map.keys()), state="readonly", width=20)
+        ctk.CTkLabel(right_frame, text="Chất lượng (CRF):", font=ctk.CTkFont(size=13)).grid(row=4, column=0, sticky="w", padx=20, pady=5)
+        self.crf_cb = ctk.CTkComboBox(right_frame, values=list(self.crf_map.keys()), state="readonly", command=lambda e: [setattr(self, 'crfOutput', self.crf_map[e]), self.update_estimate()])
         self.crf_cb.set("28 (Chất lượng thấp)")
-        self.crf_cb.grid(row=3, column=1, pady=5, padx=5)
-        self.crf_cb.bind("<<ComboboxSelected>>", lambda e: [setattr(self, 'crfOutput', self.crf_map[self.crf_cb.get()]), self.update_estimate()])
+        self.crf_cb.grid(row=4, column=1, padx=(0, 20), pady=5, sticky="ew")
 
-        # VCODEC (Đã đổi tên hiển thị thân thiện với người dùng)
+        # VCODEC
         self.codec_map = {
             "H.264 / AVC (Phổ biến nhất, khuyên dùng)": "libx264",
             "H.265 / HEVC (Nén cực tốt, file siêu nhẹ)": "libx265",
@@ -168,61 +155,55 @@ class GUI:
             "VP8 (Chuẩn WebM cơ bản)": "libvpx",
             "MPEG-4 (Định dạng cũ, nén kém)": "mpeg4"
         }
-        Label(right_frame, text="Bộ mã hóa (Codec):", bg=FRAME_BG, fg=TEXT_COLOR, font=('Segoe UI', 10)).grid(row=4, column=0, sticky="w", pady=5)
+        ctk.CTkLabel(right_frame, text="Bộ mã hóa (Codec):", font=ctk.CTkFont(size=13)).grid(row=5, column=0, sticky="w", padx=20, pady=5)
+        self.codec_cb = ctk.CTkComboBox(right_frame, values=list(self.codec_map.keys()), state="readonly", command=lambda e: [setattr(self, 'vcodecOutput', self.codec_map[e]), self.update_estimate()])
+        self.codec_cb.set("H.264 / AVC (Phổ biến nhất, khuyên dùng)")
+        self.codec_cb.grid(row=5, column=1, padx=(0, 20), pady=5, sticky="ew")
         
-        # Tăng width lên 28 để chữ không bị che khuất
-        self.codec_cb = ttk.Combobox(right_frame, values=list(self.codec_map.keys()), state="readonly", width=28) 
-        self.codec_cb.set("H.264 / AVC (Phổ biến nhất, khuyên dùng)") # Mặc định
-        self.vcodecOutput = self.codec_map["H.264 / AVC (Phổ biến nhất, khuyên dùng)"]
-        
-        self.codec_cb.grid(row=4, column=1, pady=5, padx=5)
-        # Khi chọn tên thân thiện -> Tự động lưu mã kỹ thuật ngầm và tính lại dung lượng
-        self.codec_cb.bind("<<ComboboxSelected>>", lambda e: [setattr(self, 'vcodecOutput', self.codec_map[self.codec_cb.get()]), self.update_estimate()])
-        
-        # Speed (Sửa lại bind sự kiện)
-        self.LISTSPEED = [0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0]
-        Label(right_frame, text="Tốc độ:", bg=FRAME_BG, fg=TEXT_COLOR, font=('Segoe UI', 10)).grid(row=5, column=0, sticky="w", pady=5)
-        self.speed_cb = ttk.Combobox(right_frame, values=[str(x) for x in self.LISTSPEED], width=20)
+        # Speed 
+        self.LISTSPEED = ["0.25", "0.5", "0.75", "1.0", "1.25", "1.5", "1.75", "2.0"]
+        ctk.CTkLabel(right_frame, text="Tốc độ:", font=ctk.CTkFont(size=13)).grid(row=6, column=0, sticky="w", padx=20, pady=5)
+        # CustomTkinter ko cho tự do gõ vào OptionMenu, nên ta dùng ComboBox
+        self.speed_cb = ctk.CTkComboBox(right_frame, values=self.LISTSPEED, command=self.update_estimate)
         self.speed_cb.set(str(self.speedOutput))
-        self.speed_cb.grid(row=5, column=1, pady=5, padx=5)
-        self.speed_cb.bind("<<ComboboxSelected>>", self.update_estimate)
-        self.speed_cb.bind("<KeyRelease>", self.update_estimate) # Cho phép gõ số lẻ thủ công
+        self.speed_cb.grid(row=6, column=1, padx=(0, 20), pady=5, sticky="ew")
+        self.speed_cb.bind("<KeyRelease>", self.update_estimate)
 
-        # THÊM MỚI: Nhập thời gian đích (Tự động tính tốc độ)
-        Label(right_frame, text="Thời gian đích (s):", bg=FRAME_BG, fg=TEXT_COLOR, font=('Segoe UI', 10)).grid(row=6, column=0, sticky="w", pady=5)
-        self.targetTimeInput = Entry(right_frame, bg=ENTRY_BG, fg=TEXT_COLOR, insertbackground=TEXT_COLOR, relief=FLAT, font=('Segoe UI', 10), width=22)
-        self.targetTimeInput.grid(row=6, column=1, pady=5, padx=5)
+        # Thời gian đích
+        ctk.CTkLabel(right_frame, text="Thời gian đích (s):", font=ctk.CTkFont(size=13)).grid(row=7, column=0, sticky="w", padx=20, pady=5)
+        self.targetTimeInput = ctk.CTkEntry(right_frame, font=ctk.CTkFont(size=13))
+        self.targetTimeInput.grid(row=7, column=1, padx=(0, 20), pady=5, sticky="ew")
         self.targetTimeInput.bind("<KeyRelease>", self.update_estimate) 
 
-        # THÊM MỚI: Hiển thị dung lượng ước tính
-        self.labelEstimate = Label(right_frame, text="Dung lượng ước tính: ~ MB", bg=FRAME_BG, fg="#f39c12", font=('Segoe UI', 10, 'bold'))
-        self.labelEstimate.grid(row=7, column=0, columnspan=2, pady=10)
-        
-        # Biến lưu trữ thời lượng gốc
-        self.original_duration = 0.0
+        # Hiển thị dung lượng ước tính
+        self.labelEstimate = ctk.CTkLabel(right_frame, text="Dung lượng ước tính: ~ MB", font=ctk.CTkFont(family="Segoe UI", size=14, weight="bold"))
+        self.labelEstimate.grid(row=8, column=0, columnspan=2, pady=15)
 
         # ==========================================
         # KHỐI BOTTOM (RENDER & TIẾN TRÌNH)
         # ==========================================
-        bottom_frame = Frame(self.master, bg=BG_COLOR)
-        bottom_frame.pack(fill=X, padx=20, pady=20)
+        bottom_frame = ctk.CTkFrame(self, fg_color="transparent")
+        bottom_frame.pack(fill="x", padx=20, pady=20)
 
-        self.saveFileButton = Button(bottom_frame, text='🚀 XUẤT VIDEO (RENDER)', font=('Segoe UI', 12, 'bold'), 
-                                     fg=BG_COLOR, bg=ACCENT_COLOR, activebackground="#25a87c", 
-                                     relief=FLAT, cursor="hand2", command=self.saveFILE)
-        self.saveFileButton.pack(fill=X, pady=(0, 15))
+        self.saveFileButton = ctk.CTkButton(bottom_frame, text='🚀 XUẤT VIDEO (RENDER)', font=ctk.CTkFont(family="Segoe UI", size=16, weight="bold"), 
+                                            command=self.saveFILE, height=50)
+        self.saveFileButton.pack(fill="x", pady=(0, 15))
 
-        self.progressBar = ttk.Progressbar(bottom_frame, orient=HORIZONTAL, mode='determinate', style="Horizontal.TProgressbar")
-        self.progressBar.pack(fill=X, pady=5)
+        self.progressBar = ctk.CTkProgressBar(bottom_frame, height=15)
+        self.progressBar.set(0)
+        self.progressBar.pack(fill="x", pady=5)
         
-        # Nhãn hiển thị kết quả xuất file
-        self.labelTextinfomation2 = Label(bottom_frame, text="", bg=BG_COLOR, fg=ACCENT_COLOR, font=('Segoe UI', 10, 'bold'))
+        self.labelTextinfomation2 = ctk.CTkLabel(bottom_frame, text="", text_color="#2fd09b", font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"))
         self.labelTextinfomation2.pack()
 
     # ==========================================
-    # KHỐI AUTO UPDATE
+    # KHỐI AUTO UPDATE (ZIP MODE)
     # ==========================================
-    def check_for_updates(self):
+    def manual_check_update(self):
+        self.btn_check_update.configure(state="disabled", text="⏳ Đang kiểm tra...")
+        threading.Thread(target=self.check_for_updates, args=(True,), daemon=True).start()
+
+    def check_for_updates(self, manual=False):
         try:
             req = urllib.request.Request(REPO_URL, headers={'User-Agent': 'Mozilla/5.0'})
             with urllib.request.urlopen(req, timeout=5) as response:
@@ -232,9 +213,20 @@ class GUI:
             
             if latest_version and latest_version != CURRENT_VERSION:
                 self.latest_version_data = data
-                self.master.after(0, lambda: self.btn_update.pack(side=LEFT, padx=15))
-        except Exception:
-            pass # Bỏ qua nếu lỗi mạng hoặc API
+                def show_update_btn():
+                    self.btn_check_update.pack_forget()
+                    self.btn_update.pack(side="left", padx=15)
+                self.after(0, show_update_btn)
+                if manual:
+                    self.after(0, self.prompt_update)
+            else:
+                if manual:
+                    self.after(0, lambda: showinfo("Cập nhật", "Bạn đang sử dụng phiên bản mới nhất!"))
+                    self.after(0, lambda: self.btn_check_update.configure(state="normal", text="🔄 Kiểm tra cập nhật"))
+        except Exception as e:
+            if manual:
+                self.after(0, lambda: showinfo("Lỗi", f"Không thể kiểm tra cập nhật: {e}"))
+                self.after(0, lambda: self.btn_check_update.configure(state="normal", text="🔄 Kiểm tra cập nhật"))
 
     def prompt_update(self):
         latest_version = self.latest_version_data.get("tag_name", "")
@@ -252,29 +244,30 @@ class GUI:
             
         download_url = None
         for asset in assets:
-            if asset.get("name", "").endswith(".exe"):
+            if asset.get("name", "").endswith(".zip"):
                 download_url = asset.get("browser_download_url")
                 break
                 
         if not download_url:
-            showinfo("Lỗi", "Không tìm thấy file .exe phù hợp trên GitHub Releases!")
+            showinfo("Lỗi", "Không tìm thấy file .zip phù hợp trên GitHub Releases!\nHãy đảm bảo bản release đã tải lên file ZIP.")
             return
             
-        self.progressBar['value'] = 0
-        self.labelTextinfomation2.config(text=f"⏳ Đang tải bản cập nhật... Vui lòng không đóng app!")
+        self.progressBar.set(0)
+        self.labelTextinfomation2.configure(text=f"⏳ Đang tải bản cập nhật... Vui lòng không đóng app!")
         
         self.btn_update.pack_forget()
-        self.saveFileButton['state'] = "disabled"
-        self.choiceFileButton['state'] = "disabled"
+        self.saveFileButton.configure(state="disabled")
+        self.choiceFileButton.configure(state="disabled")
         
         def download_thread():
             try:
-                import tempfile
                 temp_dir = tempfile.gettempdir()
-                new_exe_path = os.path.join(temp_dir, "ResizeVideo_Update.exe")
+                zip_path = os.path.join(temp_dir, "ResizeVideo_Update.zip")
+                extract_dir = os.path.join(temp_dir, "ResizeVideo_Update_Extracted")
                 
+                # Tải file zip
                 req = urllib.request.Request(download_url, headers={'User-Agent': 'Mozilla/5.0'})
-                with urllib.request.urlopen(req, timeout=10) as response, open(new_exe_path, 'wb') as out_file:
+                with urllib.request.urlopen(req, timeout=15) as response, open(zip_path, 'wb') as out_file:
                     total_length = response.getheader('content-length')
                     
                     if total_length is None:
@@ -289,47 +282,56 @@ class GUI:
                                 break
                             downloaded += len(data)
                             out_file.write(data)
-                            percent = int((downloaded / total_length) * 100)
-                            self.master.after(0, lambda p=percent: self.progressBar.config(value=p))
+                            percent = downloaded / total_length
+                            self.after(0, lambda p=percent: self.progressBar.set(p))
                 
-                self.master.after(0, lambda: self.labelTextinfomation2.config(text="✅ Tải xong! Đang cài đặt..."))
-                self.install_update(new_exe_path)
+                self.after(0, lambda: self.labelTextinfomation2.configure(text="⏳ Đang giải nén file..."))
+                
+                # Giải nén
+                if os.path.exists(extract_dir):
+                    shutil.rmtree(extract_dir)
+                os.makedirs(extract_dir)
+                
+                with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                    zip_ref.extractall(extract_dir)
+                
+                self.after(0, lambda: self.labelTextinfomation2.configure(text="✅ Giải nén xong! Đang cài đặt..."))
+                self.install_update(extract_dir)
                 
             except Exception as e:
-                self.master.after(0, lambda err=e: showinfo("Lỗi cập nhật", f"Lỗi: {err}"))
-                self.master.after(0, lambda: self.labelTextinfomation2.config(text="❌ Tải cập nhật thất bại!", fg="red"))
-                self.master.after(0, lambda: self.saveFileButton.config(state="normal"))
-                self.master.after(0, lambda: self.choiceFileButton.config(state="normal"))
+                self.after(0, lambda err=e: showinfo("Lỗi cập nhật", f"Lỗi: {err}"))
+                self.after(0, lambda: self.labelTextinfomation2.configure(text="❌ Tải cập nhật thất bại!", text_color="red"))
+                self.after(0, lambda: self.saveFileButton.configure(state="normal"))
+                self.after(0, lambda: self.choiceFileButton.configure(state="normal"))
                 
         threading.Thread(target=download_thread, daemon=True).start()
 
-    def install_update(self, new_exe_path):
+    def install_update(self, extract_dir):
         current_exe = sys.executable 
         
         if not current_exe.endswith(".exe") or "python" in current_exe.lower():
-            self.master.after(0, lambda: showinfo("Môi trường Dev", "Đang chạy mã nguồn Python, không phải file .exe. Bỏ qua ghi đè."))
-            self.master.after(0, lambda: self.saveFileButton.config(state="normal"))
-            self.master.after(0, lambda: self.choiceFileButton.config(state="normal"))
-            self.master.after(0, lambda: self.labelTextinfomation2.config(text=""))
+            self.after(0, lambda: showinfo("Môi trường Dev", "Đang chạy mã nguồn Python, không phải file .exe. Bỏ qua cập nhật thư mục."))
+            self.after(0, lambda: self.saveFileButton.configure(state="normal"))
+            self.after(0, lambda: self.choiceFileButton.configure(state="normal"))
+            self.after(0, lambda: self.labelTextinfomation2.configure(text=""))
             return
             
         current_dir = os.path.dirname(current_exe)
-        current_exe_name = os.path.basename(current_exe)
         bat_path = os.path.join(current_dir, "update_script.bat")
         
+        # Batch script để copy đè file từ thư mục giải nén sang thư mục app hiện tại, sau đó chạy lại exe
         bat_content = f'''@echo off
-echo Dang cap nhat ResizeVideo Pro...
+echo Dang cap nhat ResizeVideo Pro... Vui long doi giay lat...
 timeout /t 3 /nobreak > NUL
-del "{current_exe_name}"
-move /Y "{new_exe_path}" "{current_exe_name}"
-start "" "{current_exe_name}"
+xcopy /E /Y /C "{extract_dir}\\*" "{current_dir}\\"
+start "" "{current_exe}"
 del "%~f0"
 '''
         with open(bat_path, "w", encoding="utf-8") as f:
             f.write(bat_content)
             
         subprocess.Popen(bat_path, shell=True, creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, 'CREATE_NO_WINDOW') else 0)
-        self.master.after(100, sys.exit)
+        self.after(100, sys.exit)
 
     # ==========================================
     # CÁC HÀM XỬ LÝ CHÍNH
@@ -341,19 +343,16 @@ del "%~f0"
             
         filename = self.fileNameInput.split("/")[-1]
         try:
-            
-            # Lấy dung lượng file đầu vào (MB)
             file_size_bytes = os.path.getsize(self.fileNameInput)
             file_size_mb = round(file_size_bytes / (1024 * 1024), 2)
             
             clip = VideoFileClip(self.fileNameInput)
-            self.original_duration = clip.duration # Lưu thời lượng gốc
+            self.original_duration = clip.duration
             
-            # Thêm "💾 Size Gốc" vào text hiển thị
             info_text = f"🎥 File: {filename}\n\n⏱️ Time: {round(clip.duration, 2)} s\n\n📐 Kích thước: {clip.size[0]} x {clip.size[1]}\n\n🎞️ FPS: {round(clip.fps, 2)}\n\n💾 Dung lượng gốc: {file_size_mb} MB"
-            self.labelTextinfomation.config(text=info_text)
+            self.labelTextinfomation.configure(text=info_text)
             
-            self.targetTimeInput.delete(0, END)
+            self.targetTimeInput.delete(0, 'end')
             self.targetTimeInput.insert(0, str(round(self.original_duration, 2)))
             self.update_estimate()
             
@@ -372,61 +371,49 @@ del "%~f0"
             return
             
         try:
-            # Nếu người dùng gõ vào ô "Thời gian đích" -> Suy ra tốc độ
-            if event and event.widget == self.targetTimeInput:
+            if event and hasattr(event, "widget") and event.widget == self.targetTimeInput:
                 target_time = float(self.targetTimeInput.get())
                 if target_time > 0:
                     self.speedOutput = round(self.original_duration / target_time, 2)
                     self.speed_cb.set(str(self.speedOutput))
-                    
-            # Nếu người dùng đổi "Tốc độ" -> Suy ra thời gian đích
             else:
                 self.speedOutput = float(self.speed_cb.get())
                 target_time = round(self.original_duration / self.speedOutput, 2)
-                self.targetTimeInput.delete(0, END)
+                self.targetTimeInput.delete(0, 'end')
                 self.targetTimeInput.insert(0, str(target_time))
                 
-            
-            # 1. Hệ số theo độ phân giải (Dựa vào chiều rộng pixel)
             width = self.scaleOutput[0] if isinstance(self.scaleOutput, tuple) else 1920
-            if width >= 3840: scale_mult = 3.5    # 4K
-            elif width >= 2560: scale_mult = 1.8  # 2K
-            elif width >= 1920: scale_mult = 1.0  # 1080p (Mốc chuẩn)
-            elif width >= 1280: scale_mult = 0.5  # 720p
-            elif width >= 854: scale_mult = 0.25  # 480p
-            else: scale_mult = 0.15               # Nhỏ hơn
+            if width >= 3840: scale_mult = 3.5
+            elif width >= 2560: scale_mult = 1.8
+            elif width >= 1920: scale_mult = 1.0
+            elif width >= 1280: scale_mult = 0.5
+            elif width >= 854: scale_mult = 0.25
+            else: scale_mult = 0.15
             
-            # 2. Hệ số theo CRF (Chất lượng video)
             crf = getattr(self, 'crfOutput', 28)
-            if crf <= 18: crf_mult = 1.6     # Chất lượng cao -> Nặng
-            elif crf <= 23: crf_mult = 1.0   # Trung bình (Mốc chuẩn)
-            else: crf_mult = 0.6             # Thấp -> Nhẹ
+            if crf <= 18: crf_mult = 1.6
+            elif crf <= 23: crf_mult = 1.0
+            else: crf_mult = 0.6
 
-            # 3. Hệ số theo Video Codec
             codec = getattr(self, 'vcodecOutput', 'libx264')
-            if codec == "libx265": codec_mult = 0.5      # H.265 nén cực tốt, dung lượng giảm một nửa
-            elif codec == "libvpx-vp9": codec_mult = 0.6 # VP9 nén cũng rất tốt
-            elif codec == "libvpx": codec_mult = 1.2     # VP8 cũ hơn, nặng hơn
-            elif codec == "mpeg4": codec_mult = 1.5      # MPEG4 cũ, tối ưu kém
-            else: codec_mult = 1.0                       # libx264 (Mốc chuẩn)
+            if codec == "libx265": codec_mult = 0.5
+            elif codec == "libvpx-vp9": codec_mult = 0.6
+            elif codec == "libvpx": codec_mult = 1.2
+            elif codec == "mpeg4": codec_mult = 1.5
+            else: codec_mult = 1.0
 
-            # 4. Hệ số theo Định dạng (Xử lý riêng cho GIF)
             fmt = getattr(self, 'dot', '.mp4').lower()
             if fmt == ".gif":
-                format_mult = 4.5  # GIF là chuỗi hình ảnh không nén chuẩn video, cực kỳ nặng!
+                format_mult = 4.5
             else:
-                format_mult = 1.0  # Các đuôi video khác dung lượng phụ thuộc chính vào Codec
+                format_mult = 1.0
 
-            # Mức chuẩn trung bình cho 1080p, CRF 23, H.264 là khoảng 0.3 MB/giây
             mb_per_second = 0.3 * scale_mult * crf_mult * codec_mult * format_mult
-            
-            # Khối lượng cuối cùng
             estimated_mb = target_time * mb_per_second
-            self.labelEstimate.config(text=f"Dung lượng ước tính: ~ {round(estimated_mb, 2)} MB")
-            
+            self.labelEstimate.configure(text=f"Dung lượng ước tính: ~ {round(estimated_mb, 2)} MB")
             
         except ValueError:
-            pass # Bỏ qua lỗi nếu đang gõ dở chữ/ký tự đặc biệt
+            pass
     
     def apply_resize(self, clip, scale_val):
         if isinstance(scale_val, tuple):
@@ -445,19 +432,18 @@ del "%~f0"
         if not folder:
             return
             
-        # Vô hiệu hóa UI trong lúc render
-        self.choiceFileButton['state'] = "disabled"
-        self.saveFileButton['state'] = "disabled"
-        self.textBoxOutName['state'] = "disabled"
-        self.format_cb['state'] = "disabled"
-        self.scale_cb['state'] = "disabled"
-        self.crf_cb['state'] = "disabled"
-        self.codec_cb['state'] = "disabled"
-        self.speed_cb['state'] = "disabled"
+        self.choiceFileButton.configure(state="disabled")
+        self.saveFileButton.configure(state="disabled")
+        self.textBoxOutName.configure(state="disabled")
+        self.format_cb.configure(state="disabled")
+        self.scale_cb.configure(state="disabled")
+        self.crf_cb.configure(state="disabled")
+        self.codec_cb.configure(state="disabled")
+        self.speed_cb.configure(state="disabled")
         
-        self.progressBar['value'] = 0
-        self.labelTextinfomation2.config(text="⏳ Đang xử lý... Vui lòng đợi!")
-        self.master.update() 
+        self.progressBar.set(0)
+        self.labelTextinfomation2.configure(text="⏳ Đang xử lý... Vui lòng đợi!", text_color="#f39c12")
+        self.update() 
         
         def render_thread():
             try:
@@ -468,7 +454,7 @@ del "%~f0"
                     clip = clip.with_speed_scaled(self.speedOutput)
                 
                 output_path = f"{folder}/{self.fileNameOutput}{self.dot}"
-                my_logger = MyTkLogger(self.progressBar, self.master)
+                my_logger = MyTkLogger(self.progressBar, self)
                 
                 if self.dot.lower() == '.gif':
                     clip.write_gif(output_path, fps=15, logger=my_logger)
@@ -482,38 +468,31 @@ del "%~f0"
                         logger=my_logger
                     )
                 
-                # Cập nhật thông tin file đầu ra
                 out_info = f'✅ ĐÃ XUẤT THÀNH CÔNG: {self.fileNameOutput}{self.dot} | Time: {round(clip.duration, 2)}s | Size: {clip.size[0]}x{clip.size[1]}'
-                self.master.after(0, lambda: self.labelTextinfomation2.config(text=out_info))
+                self.after(0, lambda: self.labelTextinfomation2.configure(text=out_info, text_color="#2fd09b"))
                 clip.close()
                 
-                self.master.after(0, lambda: showinfo(title="Hoàn tất", message="Đã xuất video thành công!"))
+                self.after(0, lambda: showinfo(title="Hoàn tất", message="Đã xuất video thành công!"))
                 
             except Exception as e:
-                self.master.after(0, lambda err=e: showinfo(title="Lỗi xử lý", message=f"Đã có lỗi:\n{err}"))
-                self.master.after(0, lambda: self.labelTextinfomation2.config(text="❌ Xuất file thất bại!", fg="red"))
+                self.after(0, lambda err=e: showinfo(title="Lỗi xử lý", message=f"Đã có lỗi:\n{err}"))
+                self.after(0, lambda: self.labelTextinfomation2.configure(text="❌ Xuất file thất bại!", text_color="red"))
             finally:
-                # Bật lại UI
                 def reset_ui():
-                    self.choiceFileButton['state'] = "normal"
-                    self.saveFileButton['state'] = "normal"
-                    self.textBoxOutName['state'] = "normal"
-                    self.format_cb['state'] = "readonly"
-                    self.scale_cb['state'] = "readonly"
-                    self.crf_cb['state'] = "readonly"
-                    self.codec_cb['state'] = "readonly"
-                    self.speed_cb['state'] = "readonly"
-                    self.progressBar['value'] = 0
+                    self.choiceFileButton.configure(state="normal")
+                    self.saveFileButton.configure(state="normal")
+                    self.textBoxOutName.configure(state="normal")
+                    self.format_cb.configure(state="normal")
+                    self.scale_cb.configure(state="normal")
+                    self.crf_cb.configure(state="normal")
+                    self.codec_cb.configure(state="normal")
+                    self.speed_cb.configure(state="normal")
+                    self.progressBar.set(0)
                 
-                self.master.after(0, reset_ui)
+                self.after(0, reset_ui)
 
         threading.Thread(target=render_thread, daemon=True).start()
 
 if __name__ == "__main__":
-    root = Tk()
-    root.geometry('650x550') # Mở rộng size một chút cho thoáng
-    root.title('ResizeVideo Pro (MoviePy)')
-    root.resizable(False, False)
-    root.configure(bg=BG_COLOR)
-    myGUI = GUI(root)
-    root.mainloop()
+    app = GUI()
+    app.mainloop()

@@ -8,16 +8,16 @@
 ## 🛠️ Bước 1: Cập nhật Code & Đóng gói (Trên máy tính của bạn)
 
 1. Mở file `main.py` bằng trình soạn thảo (VSCode/Sublime...).
-2. Tìm dòng số 16: `CURRENT_VERSION = "v1.0.0"`.
+2. Tìm biến `CURRENT_VERSION = "v..."` (gần đầu file).
 3. Sửa thông số này thành phiên bản mới tương ứng.
    > **Ví dụ:** Nâng cấp từ `v1.0.0` lên `v1.0.1` hoặc `v1.1.0`
 
-4. Mở Terminal/CMD và chạy lệnh đóng gói ứng dụng:
+4. Mở Terminal/CMD tại thư mục dự án và chạy lệnh đóng gói ứng dụng:
    ```cmd
-   pyinstaller main.spec
+   python build.py
    ```
-5. Đợi quá trình hoàn tất, bạn vào thư mục `dist` sẽ thấy file `main.exe` mới vừa được tạo ra.
-6. *(Tùy chọn)* Đổi tên file `main.exe` này thành `ResizeVideo.exe` cho đẹp và chuyên nghiệp hơn.
+5. Đợi quá trình hoàn tất. Script sẽ tự động đóng gói ứng dụng dưới dạng thư mục (giúp tránh bị Windows Defender quét) và nén lại thành file `.zip`.
+6. Bạn vào thư mục `dist` sẽ thấy file **`ResizeVideo_Release.zip`** mới vừa được tạo ra.
 
 ---
 
@@ -30,7 +30,7 @@
 > Tại ô **Choose a tag**, bạn **PHẢI** gõ **chính xác** cái tên phiên bản bạn vừa thiết lập ở Bước 1 (Ví dụ: `v1.0.1`). Nếu gõ sai, tính năng cập nhật sẽ không hoạt động.
 
 3. Điền **Tiêu đề (Release title)** và **Mô tả (Describe this release)** để thông báo cho người dùng biết bản mới có tính năng gì nổi bật.
-4. Tại khu vực **Attach binaries by dropping them here (Assets)**, hãy kéo và thả file `.exe` (đã đóng gói ở Bước 1) vào.
+4. Tại khu vực **Attach binaries by dropping them here (Assets)**, hãy kéo và thả file **`ResizeVideo_Release.zip`** (ở Bước 1) vào.
 5. Đợi file tải lên xong 100%, nhấn nút màu xanh lá **Publish release**.
 
 ---
@@ -40,4 +40,4 @@
 > [!TIP]
 > Ngay khi bạn nhấn Publish trên GitHub, những người dùng đang mở bản cũ sẽ lập tức thấy nút **"🎁 Cập nhật bản mới"** (màu cam) tự động hiện lên trên góc ứng dụng.
 > 
-> Họ chỉ cần click chuột, app sẽ tự tải file `.exe` mới từ GitHub về và âm thầm thay thế cho bản cũ một cách hoàn toàn tự động!
+> Họ chỉ cần click chuột, app sẽ tự tải file `.zip` mới từ GitHub về, tự động giải nén và thay thế cho bản cũ hoàn toàn tự động!

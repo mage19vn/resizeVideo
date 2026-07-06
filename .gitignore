@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# PyInstaller
+build/
+dist/
+*.spec
+
+# Thư mục tạm của dự án
+Input/
+Output/
+app/
+
+# IDE
+.vscode/
+.idea/
